@@ -15,7 +15,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller==4.10 pyqt5==5.15.4 pyqt5-tools==5.15.4.3.2 pyautogui
+        pip install pyinstaller pyqt5 pyqt5-tools pyautogui
     - name: Build EXE
       run: pyinstaller --onefile send_qq_message.py
     - name: Upload artifact
