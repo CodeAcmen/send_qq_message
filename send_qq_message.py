@@ -5,6 +5,7 @@ import pyautogui
 import time
 import platform
 import threading
+import pygetwindow as gw
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QListWidget, QMessageBox, QSystemTrayIcon, QMenu, QAction
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QIcon
@@ -142,21 +143,31 @@ class ClipboardChecker(QWidget):
         
     def send_message_to_group(self, command):
         try:
-            # 将QQ窗口前置以确保发送消息
+            # 确保QQ窗口最小化后被前置
             if platform.system() == "Windows":
-                pyautogui.hotkey('alt', 'tab')
+                # 使用 pygetwindow 获取 QQ 窗口
+                windows = gw.getWindowsWithTitle('QQ')
+                if windows:
+                    qq_window = windows[0]
+                    qq_window.restore()  # 还原窗口
+                    qq_window.activate()  # 激活窗口
+                    time.sleep(1)  # 确保窗口激活
+                
             elif platform.system() == "Darwin":
                 pyautogui.hotkey('command', 'tab')
 
-            pyautogui.typewrite(command.message)
+            # 发送消息
+            pyautogui.typewrite(command.message, interval=0.1)
             pyautogui.press('enter')
             
             command.executions += 1
-            
+            print(f"Message sent. Executions: {command.executions}/{command.max_executions}")
+
             if command.executions >= command.max_executions:
                 command.timer.stop()
                 QMessageBox.information(self, '完成', f'命令已完成：消息: {command.message}')
         except Exception as e:
+            print(f"Error: {str(e)}")
             QMessageBox.warning(self, '错误', f'执行过程中出现错误：{str(e)}')
             command.timer.stop()
 
