@@ -125,14 +125,23 @@ class ClipboardChecker(QWidget):
         self.command_list.addItem(f'标题: {window_title}, 消息: {message}, 间隔: {interval}秒, 次数: {max_executions}')
         
     def open_and_minimize_group_chat(self):
+        window_title = self.window_title_input.text()
+        if not window_title:
+            QMessageBox.warning(self, '错误', '群聊窗口标题不能为空。')
+            return
+        
         # 打开群聊窗口
         webbrowser.open(f'tencent://groupwpa/?subcmd=all&param={self.group_param}')
-        time.sleep(2)  # 等待群聊窗口打开
+        time.sleep(5)  # 等待群聊窗口打开
 
-        # 最小化窗口
-        pyautogui.hotkey('win', 'down')  # 确保窗口最小化
-
-        QMessageBox.information(self, '信息', '请确保群聊窗口已最小化。')
+        # 查找并最小化特定群聊窗口
+        windows = gw.getWindowsWithTitle(window_title)
+        if windows:
+            group_window = windows[0]
+            group_window.minimize()
+            QMessageBox.information(self, '信息', '群聊窗口已最小化。')
+        else:
+            QMessageBox.warning(self, '错误', f'未找到群聊窗口：{window_title}')
 
     def start_all_commands(self):
         for command in self.commands:
