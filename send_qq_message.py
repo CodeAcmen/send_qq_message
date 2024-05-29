@@ -7,6 +7,10 @@ import pygetwindow as gw
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QListWidget, QMessageBox, QSystemTrayIcon, QMenu, QAction
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QIcon
+import logging
+
+# 初始化日志配置，日志将输出到 clipboard_checker.log 文件
+logging.basicConfig(filename='clipboard_checker.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class Command:
     def __init__(self, message, interval, max_executions, window_title):
@@ -139,30 +143,52 @@ class ClipboardChecker(QWidget):
         if windows:
             group_window = windows[0]
             group_window.minimize()
+            logging.info(f'群聊窗口已最小化: {window_title}')
             QMessageBox.information(self, '信息', '群聊窗口已最小化。')
         else:
+            logging.warning(f'未找到群聊窗口: {window_title}')
             QMessageBox.warning(self, '错误', f'未找到群聊窗口：{window_title}')
 
     def start_all_commands(self):
-        for command in self.commands:
-            command.timer.start(command.interval)
-            self.show_notification(f'命令开始：消息: {command.message}', f'间隔: {command.interval//1000}秒, 次数: {command.max_executions}')
-            
+        try:
+            if not self.commands:
+                logging.warning("No commands to start.")
+                QMessageBox.warning(self, '错误', '没有命令可以启动。')
+                return
+
+            for command in self.commands:
+                logging.info(f'Starting command: {command.message} with interval {command.interval}ms for {command.max_executions} executions')
+                command.timer.start(command.interval)
+                self.log_message(f'命令开始：消息: {command.message}', f'间隔: {command.interval//1000}秒, 次数: {command.max_executions}')
+        except Exception as e:
+            logging.error(f"Error starting commands: {str(e)}")
+            QMessageBox.warning(self, '错误', f'启动命令时出错：{str(e)}')
+
     def stop_all_commands(self):
-        for command in self.commands:
-            command.timer.stop()
-        QMessageBox.information(self, '停止', '所有命令已停止。')
+        try:
+            for command in self.commands:
+                command.timer.stop()
+            logging.info('所有命令已停止。')
+            QMessageBox.information(self, '停止', '所有命令已停止。')
+        except Exception as e:
+            logging.error(f"Error stopping commands: {str(e)}")
+            QMessageBox.warning(self, '错误', f'停止命令时出错：{str(e)}')
 
     def run_in_thread(self, command):
-        thread = threading.Thread(target=self.send_message_to_group, args=(command,))
-        thread.start()
+        try:
+            thread = threading.Thread(target=self.send_message_to_group, args=(command,))
+            thread.start()
+        except Exception as e:
+            logging.error(f"Error running command in thread: {str(e)}")
+            QMessageBox.warning(self, '错误', f'在线程中运行命令时出错：{str(e)}')
         
     def send_message_to_group(self, command):
         try:
+            logging.info(f"Sending message to group: {command.window_title}")
             # 获取 QQ 窗口
             windows = gw.getWindowsWithTitle(command.window_title)
             if not windows:
-                print("群窗口未找到")
+                logging.warning("群窗口未找到")
                 return
 
             qq_window = windows[0]
@@ -186,24 +212,21 @@ class ClipboardChecker(QWidget):
                 ctypes.windll.user32.SendMessageW(edit_hwnd, WM_KEYDOWN, VK_RETURN, 0)
                 ctypes.windll.user32.SendMessageW(edit_hwnd, WM_KEYUP, VK_RETURN, 0)
             else:
-                print("编辑框未找到")
+                logging.warning("编辑框未找到")
 
             command.executions += 1
-            print(f"Message sent. Executions: {command.executions}/{command.max_executions}")
+            logging.info(f"Message sent. Executions: {command.executions}/{command.max_executions}")
 
             if command.executions >= command.max_executions:
                 command.timer.stop()
                 QMessageBox.information(self, '完成', f'命令已完成：消息: {command.message}')
         except Exception as e:
-            print(f"Error: {str(e)}")
+            logging.error(f"Error: {str(e)}")
             QMessageBox.warning(self, '错误', f'执行过程中出现错误：{str(e)}')
             command.timer.stop()
 
-    def show_notification(self, title, message):
-        script = f'''
-        powershell -Command "New-BurntToastNotification -Text '{title}', '{message}'"
-        '''
-        subprocess.run(["powershell", "-Command", script], shell=True)
+    def log_message(self, title, message):
+        logging.info(f'{title} - {message}')
 
 def main():
     app = QApplication(sys.argv)
