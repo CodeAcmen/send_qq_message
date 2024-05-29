@@ -1,9 +1,7 @@
 import sys
 import webbrowser
-import subprocess
-import pyautogui
+import ctypes
 import time
-import platform
 import threading
 import pygetwindow as gw
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QListWidget, QMessageBox, QSystemTrayIcon, QMenu, QAction
@@ -11,11 +9,12 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QIcon
 
 class Command:
-    def __init__(self, message, interval, max_executions):
+    def __init__(self, message, interval, max_executions, window_title):
         self.message = message
         self.interval = interval
         self.max_executions = max_executions
         self.executions = 0
+        self.window_title = window_title
         self.timer = QTimer()
 
 class ClipboardChecker(QWidget):
@@ -37,6 +36,12 @@ class ClipboardChecker(QWidget):
         layout.addWidget(self.command_list)
         
         form_layout = QVBoxLayout()
+        
+        self.window_title_label = QLabel('请输入群聊窗口标题:', self)
+        form_layout.addWidget(self.window_title_label)
+        
+        self.window_title_input = QLineEdit(self)
+        form_layout.addWidget(self.window_title_input)
         
         self.message_label = QLabel('请输入消息内容:', self)
         form_layout.addWidget(self.message_label)
@@ -97,9 +102,14 @@ class ClipboardChecker(QWidget):
         self.tray_icon.show()
         
     def add_command(self):
+        window_title = self.window_title_input.text()
         message = self.message_input.text()
         interval = self.time_input.text()
         max_executions = self.count_input.text()
+        
+        if not window_title:
+            QMessageBox.warning(self, '错误', '群聊窗口标题不能为空。')
+            return
         
         if not interval.isdigit() or int(interval) <= 0:
             QMessageBox.warning(self, '错误', '请输入有效的时间间隔（大于0的数字）。')
@@ -109,21 +119,18 @@ class ClipboardChecker(QWidget):
             QMessageBox.warning(self, '错误', '请输入有效的执行次数（1到50之间的数字）。')
             return
         
-        command = Command(message, int(interval) * 1000, int(max_executions))
+        command = Command(message, int(interval) * 1000, int(max_executions), window_title)
         command.timer.timeout.connect(lambda: self.run_in_thread(command))
         self.commands.append(command)
-        self.command_list.addItem(f'消息: {message}, 间隔: {interval}秒, 次数: {max_executions}')
+        self.command_list.addItem(f'标题: {window_title}, 消息: {message}, 间隔: {interval}秒, 次数: {max_executions}')
         
     def open_and_minimize_group_chat(self):
         # 打开群聊窗口
         webbrowser.open(f'tencent://groupwpa/?subcmd=all&param={self.group_param}')
-        time.sleep(5)  # 等待群聊窗口打开
+        time.sleep(2)  # 等待群聊窗口打开
 
         # 最小化窗口
-        if platform.system() == "Windows":
-            pyautogui.hotkey('win', 'down')  # 确保窗口最小化
-        elif platform.system() == "Darwin":
-            pyautogui.hotkey('command', 'm')  # macOS最小化窗口
+        pyautogui.hotkey('win', 'down')  # 确保窗口最小化
 
         QMessageBox.information(self, '信息', '请确保群聊窗口已最小化。')
 
@@ -143,23 +150,35 @@ class ClipboardChecker(QWidget):
         
     def send_message_to_group(self, command):
         try:
-            # 确保QQ窗口最小化后被前置
-            if platform.system() == "Windows":
-                # 使用 pygetwindow 获取 QQ 窗口
-                windows = gw.getWindowsWithTitle('QQ')
-                if windows:
-                    qq_window = windows[0]
-                    qq_window.restore()  # 还原窗口
-                    qq_window.activate()  # 激活窗口
-                    time.sleep(1)  # 确保窗口激活
-                
-            elif platform.system() == "Darwin":
-                pyautogui.hotkey('command', 'tab')
+            # 获取 QQ 窗口
+            windows = gw.getWindowsWithTitle(command.window_title)
+            if not windows:
+                print("群窗口未找到")
+                return
 
-            # 发送消息
-            pyautogui.typewrite(command.message, interval=0.1)
-            pyautogui.press('enter')
-            
+            qq_window = windows[0]
+
+            # 获取窗口句柄
+            hwnd = qq_window._hWnd
+
+            # 定义一些常量
+            WM_SETTEXT = 0x000C
+            WM_KEYDOWN = 0x0100
+            WM_KEYUP = 0x0101
+            VK_RETURN = 0x0D
+
+            # 获取窗口的编辑框句柄 (需要根据实际情况调整)
+            edit_hwnd = ctypes.windll.user32.FindWindowExW(hwnd, 0, "Edit", None)
+
+            # 发送文本消息到编辑框
+            if edit_hwnd:
+                ctypes.windll.user32.SendMessageW(edit_hwnd, WM_SETTEXT, 0, command.message)
+                # 发送回车键
+                ctypes.windll.user32.SendMessageW(edit_hwnd, WM_KEYDOWN, VK_RETURN, 0)
+                ctypes.windll.user32.SendMessageW(edit_hwnd, WM_KEYUP, VK_RETURN, 0)
+            else:
+                print("编辑框未找到")
+
             command.executions += 1
             print(f"Message sent. Executions: {command.executions}/{command.max_executions}")
 
@@ -172,14 +191,10 @@ class ClipboardChecker(QWidget):
             command.timer.stop()
 
     def show_notification(self, title, message):
-        if platform.system() == "Windows":
-            script = f'''
-            powershell -Command "New-BurntToastNotification -Text '{title}', '{message}'"
-            '''
-            subprocess.run(["powershell", "-Command", script], shell=True)
-        elif platform.system() == "Darwin":
-            script = f'display notification "{message}" with title "{title}"'
-            subprocess.run(["osascript", "-e", script])
+        script = f'''
+        powershell -Command "New-BurntToastNotification -Text '{title}', '{message}'"
+        '''
+        subprocess.run(["powershell", "-Command", script], shell=True)
 
 def main():
     app = QApplication(sys.argv)
